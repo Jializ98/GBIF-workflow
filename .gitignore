@@ -1,3 +1,9 @@
+# Project folders
+temp
+data/raw-gbif/customized/occurrence.parquet
+data/occurrence/gbif-snapshot
+data/occurrence/gbif-custom
+
 # Mac files
 .DS_Store
 

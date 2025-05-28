@@ -127,16 +127,16 @@ if (interactive() == FALSE && length(args) > 0) {
     )
 
     gbif_snapshot_url <- bucket_fs$path("occurrence/2025-05-01/occurrence.parquet")
-    local_save_dir <- here("data-raw/gbif/Vascular-Plants-2025-05-01")
+    local_save_dir <- here("data/raw-gbif/snapshot")
 
     gbif_snapshot_download(bucket_fs, gbif_snapshot_url, local_save_dir)
   }
 
   if (mode == "retrieve") {
-    taxonomy_list <- readRDS(here("data/taxonomy/lotvs-gbif-taxonomy.rds"))
-    snapshot_path <- here("data-raw/gbif/Vascular-Plants-2025-05-01")
+    taxonomy_list <- readRDS(here("data/taxonomy/test-taxonomy.rds")) |>
+      select(usageKey, rank, class, order, genus)
+    snapshot_path <- here("data/raw-gbif/snapshot")
     save_path <- here("data/occurrence/gbif-snapshot")
-    clean <- TRUE
 
     gbif_snapshot_retrieve(save_path, snapshot_path, taxonomy_list)
   }

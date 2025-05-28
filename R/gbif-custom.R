@@ -101,8 +101,8 @@ write_chunks <- function(local_df, lotvs_backbone_taxonomy, rank, dir_path, chun
 # If run with command line arguments (i.e., Slurm), execute the function
 if (interactive() == FALSE && is.null(knitr::opts_knit$get("rmarkdown.pandoc.to"))) {
   # Define file paths
-  lotvs_backbone_path <- here("data/taxonomy/lotvs-gbif-taxonomy.rds")
-  data_dir_unzipped <- here("data-raw/gbif/LOTVS-2025-05-02/parquet/0011898-250426092105405")
+  lotvs_backbone_path <- here("data/taxonomy/test-taxonomy.rds")
+  data_dir_unzipped <- here("data/raw-gbif/customized/parquet/0011898-250426092105405")
   species_path <- here("data/occurrence/gbif-custom/species")
   genus_path <- here("data/occurrence/gbif-custom/genus")
 

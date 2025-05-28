@@ -11,4 +11,4 @@ load_packages(c("cli", "here", "tidyverse","rgbif", "testthat"))
 
 # Create folder for symbolic links to raw data on Turbo
 
-create_symlink_turbo("data/raw-gbif", "datasets/vegetation/GBIF/")
+create_symlink_turbo("data/raw-gbif/snapshot", "datasets/vegetation/GBIF/Vascular-Plants-2025-05-01/")
