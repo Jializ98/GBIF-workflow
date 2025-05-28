@@ -1,5 +1,7 @@
 # GBIF-workflow
 
+This repository provides a workflow for downloading and processing species occurrence data from the Global Biodiversity Information Facility (GBIF).
+
 ## Workflow Graph
 
 ```mermaid
