@@ -1,3 +1,10 @@
+# Mac files
+.DS_Store
+
+# Quarto files
+/.quarto/
+/vignettes/.quarto/
+
 # History files
 .Rhistory
 .Rapp.history
