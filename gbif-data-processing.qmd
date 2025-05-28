@@ -1,0 +1,246 @@
+---
+title: "GBIF data processing"
+author: "Jiali Zhu, Kai Zhu"
+date: today
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup}
+#| include: false
+# Load necessary setup and preparation scripts
+source(here::here("R/setup.R"))
+```
+
+## Introduction
+
+In this document, we examine two different methods for processing data from the Global Biodiversity Information Facility (GBIF), a vital resource offering access to biodiversity occurrence records worldwide. Each method has unique strengths and limitations, making them suitable for various research needs. This guide provides insights into utilizing both customized data requests and complete snapshot downloads to maximize the potential of GBIF data.
+
+**Method 1: Customized data request**
+
+The customized data request approach allows researchers to tailor their requests to GBIF, targeting specific taxa, geographic areas, or time frames. This method ensures that the data collected is precisely aligned with research questions, reducing unnecessary data processing. While this targeted approach enhances data relevancy, it can be more time-consuming due to the iterative refinement of search parameters and the waiting period for GBIF to fulfill and deliver the custom request.
+
+**Method 2: Snapshot download**
+
+The snapshot download method provides access to an entire dataset captured at a specific point in time, offering a comprehensive view of the available data. This approach is particularly advantageous for large-scale studies that require extensive datasets, such as global biodiversity assessments involving numerous species. It is generally quicker than customized requests because the snapshot is pre-packaged and ready for immediate use. Additionally, this method facilitates a one-time download that can support multiple projects, streamlining data management for researchers. However, it requires substantial storage and processing power due to the dataset's size and may necessitate regular updates to keep the data current.
+
+Each method serves different research needs and offers distinct pathways for leveraging GBIF data effectively. Choosing the right method should consider the research objectives, available resources, and technical limitations. The following sections provide detailed instructions for each method---from downloading data to processing it into RDS files for further analysis---and discuss the pros and cons of each approach to help researchers make well-informed decisions.
+
+## Taxonomic input
+
+Both methods require a GBIF taxonomic input file, which defines the list of species or genera of interest. This file typically contains GBIF taxonomic identifiers (e.g., `usagekey`) and serves as a reference to guide data filtering. Two types of taxonomy records are accepted:
+
+Species-level records: entries identified to the species level.
+
+Genus-level records: entries identified only to the genus level.
+
+These two groups are processed separately to ensure accurate data retrieval, and we set specific lookup rules depending on these two taxonomic rank.
+
+-   **Species-level records**
+
+    -   *Accepted species name*: If the `usagekey` refers to a species that is an accepted name, we retrieve all occurrence records where `specieskey` equals this `usagekey`, thereby including all records associated with its synonyms.
+
+    -   *Synonym species name*: If the `usagekey` refers to a species that is not an accepted name, we first update the `usagekey` to its corresponding `acceptedkey` and then retrieve occurrence records by matching `specieskey` to this accepted key in the snapshot.
+
+-   **Genus-level records**
+
+    -   We retrieve occurrence records by filtering on the `genus name`, not the `usagekey`. This ensures we capture all species within that genus, even those not linked to a GBIF taxon key.
+
+See also: [GBIF taxonomic key explanation](https://discourse.gbif.org/t/understanding-gbif-taxonomic-keys-usagekey-taxonkey-specieskey/3045/4#:~:text=If%20you%20search,key%20you%20use)
+
+## Customized data request
+
+```{r}
+#| include: false
+
+source(here("R/gbif-custom.R"))
+```
+
+### Download customized GBIF data
+
+The customized GBIF data request is initiated through the `gbif_custom_download()` function. The function then communicates with the GBIF API to submit the request and retrieve the data.
+
+Once the request is submitted, GBIF processes it asynchronously and generates a downloadable URL when the data is ready. A `wget` command could be used to download the data from the provided link.
+
+>Before running the `gbif_custom_download()` function, ensure a GBIF account has been set up. See instructions on how to create a GBIF account in the [`rgbif` documentation](https://docs.ropensci.org/rgbif/articles/gbif_credentials.html).
+
+> When querying at the genus level, the customized download does not include all species within the genus unless they are individually listed in the taxonomy input file. The further retrieving will only return occurrence records for species explicitly recorded in the dataset.
+
+```{r}
+#| eval: false
+
+# Define file paths
+lotvs_backbone_path <- here("data/taxonomy/lotvs-gbif-taxonomy.rds")
+
+# Execute downloading function
+gbif_custom_download(lotvs_backbone_path)
+```
+
+### Retrieve species/genus occurrence from customized GBIF data
+
+After downloading the dataset, the `gbif_custom_retrieve()` function is used to extract species and genus occurrence records from the GBIF downloading, and saves each species/genus record as a separate parquet file.
+
+```{r}
+#| eval: false
+
+# Define file paths
+data_dir_unzipped <- here("data-raw/gbif/LOTVS-2025-05-02/parquet/0011898-250426092105405")
+species_path <- here("data/occurrence/gbif-custom/species")
+genus_path <- here("data/occurrence/gbif-custom/genus")
+
+# Execute retrieving function
+gbif_custom_retrieve(lotvs_backbone_path, data_dir_unzipped, species_path, genus_path)
+```
+
+**Use Slurm to retrieve records for all species**
+
+Given the large number of species (\~4,000), retrieving occurrence data is computationally intensive. To scale this process efficiently, the retrieval script is submitted as a Slurm batch job on a high-performance computing cluster. The entire process took about 18 hours to retrieve all occurrence records for the species. The bottleneck was primarily due to the large parquet file size (\~18 GB) to read in and the overhead associated with writing occurrence records separately for each species.
+
+<details>
+
+<summary>Slurm script</summary>
+
+``` markdown
+{{< include "../slurm/gbif_custom_retrieve.sh" >}}
+```
+
+</details>
+
+## Snapshot download
+
+```{r}
+#| include: false
+source(here("R/gbif-snapshot.R"))
+```
+
+### Download GBIF snapshot
+
+A full occurrence snapshot is taken monthly by GBIF, and this document downloads the vascular palnt snapshot from *May 1, 2025*. The dataset is accessible via an [Amazon AWS Open Dataset](https://registry.opendata.aws/gbif/). GBIF hosts data in five AWS regions, allowing users to select a nearby server for faster download speeds and reduced latency [(ref)](https://github.com/gbif/occurrence/blob/master/aws-public-data.md).
+
+We chose the US East region. Records were filtered to include only those from the `Plantae` kingdom and `Tracheophyta` phylum. The downloaded dataset is partitioned by `class` and `order` A citation is available within the data folder.
+
+```{r}
+#| eval: false
+
+# Setup S3 bucket connection
+bucket_fs <- setup_s3_bucket(
+  bucket_name = "gbif-open-data-us-east-1",
+  endpoint = "https://s3.us-east-1.amazonaws.com",
+  region = "us-east-1",
+  proxy = "http://proxy1.arc-ts.umich.edu:3128" # For using Slurm on Greatlakes
+)
+
+# Define URL for the GBIF snapshot
+gbif_snapshot_url <- bucket_fs$path("occurrence/2025-05-01/occurrence.parquet")
+local_save_dir <- here("data-raw/gbif/Vascular-Plants-2025-05-01")
+
+# Download and save the GBIF snapshot
+gbif_snapshot_download(bucket_fs, gbif_snapshot_url, local_save_dir)
+```
+
+**Use Slurm to download GBIF snapshot**
+
+Given the large size of the GBIF snapshot (nearly 60 GB), downloading and writing the dataset is time-consuming. To improve efficiency, the process is executed on a HPC using Slurm, and the output is written directly to the Turbo storage system, significantly reducing data transfer time. It took about 5 hours to download the entire vascular plants snapshot.
+
+<details>
+
+<summary>Slurm script</summary>
+
+``` markdown
+{{< include "../slurm/gbif_snapshot_download.sh" >}}
+```
+
+</details>
+
+### Retrieve species/genus occurrence from snapshot GBIF data
+
+Similarly, the `gbif_snapshot_retrieve()` function is used to extract species and genus occurrence records from the GBIF snapshot, and saves each species/genus record as a separate rds file.
+
+```{r}
+#| eval: false
+
+# Define file paths
+gbif_dir <- here("data/occurrence/gbif-snapshot")
+gbif_snapshot_path <- here("data-raw/gbif/Vascular-Plants-2025-05-01")
+lotvs_backbone_taxonomy <- readRDS(here("data/community/lotvs/lotvs-backbone-taxonomy.rds"))
+
+lotvs_backbone_consolidate <- lotvs_backbone_taxonomy |>
+  mutate(usageKey = if_else(status == "SYNONYM", acceptedUsageKey, usageKey)) |>
+  select(usageKey, rank, class, order, genus)
+
+# Execute retrieving function
+gbif_snapshot_retrieve(
+  save_path = gbif_dir,
+  gbif_snapshot_path = gbif_snapshot_path,
+  taxonomy_list = lotvs_backbone_consolidate,
+  clean = FALSE # The `gbif_dir` folder stored the un-cleaned data
+)
+```
+
+### Clean steps
+
+The `gbif_snapshot_retrieve()` function includes a `clean` parameter. When set to `TRUE`, it performs coordinate cleaning during retrieval. Since our previous analyses did not clean coordinates at this stage, we provide a separate function, `clean_occ_files()`, to clean the occurrence records afterward. This cleaning process removes duplicate records and filters out those with invalid coordinate values.
+
+```{r}
+#| eval: false
+
+input_dir <- here("data/occurrence/gbif-snapshot/species")
+output_dir <- here("data/occurrence/gbif-snapshot/cleaned/species")
+clean_occ_files(input_dir, output_dir)
+
+input_dir <- here("data/occurrence/gbif-snapshot/genus")
+output_dir <- here("data/occurrence/gbif-snapshot/cleaned/genus")
+clean_occ_files(input_dir, output_dir)
+```
+
+**Use Slurm to retrieve records for all species**
+
+Similarly, the retrieval script is submitted as a Slurm batch job on a high-performance computing cluster. It took about 6 hours to retrieve all occurrence records for the 4,000+ species. Since the snapshot parquet file is already partitioned, each read operation is more efficient. However, due to the volume of data loaded during processing, it is important to allocate sufficient memory to avoid Out of Memory issue.
+
+<details>
+
+<summary>Slurm script</summary>
+
+``` markdown
+{{< include "../slurm/gbif_snapshot_retrieve.sh" >}}
+```
+
+</details>
+
+## Running test
+
+To ensure the functions work as expected, we have implemented a series of tests using the `testthat` package. The example taxonomy list includes one species *Abies alba* and one genus *Abutilon*. 
+
+On the first run, only the `gbif_custom_download()` in the first method test will work. After sending the request, check GBIF user downloads page to manually download the example dataset. The example customized GBIF data can also be downloaded from the link in `example_parquet`. 
+
+Unzip the file and make sure it is placed as a folder named: `occurrence.parquet`. Once the data is present, subsequent tests for `gbif_custom_retrieve()` will run smoothly. The `test/` directory should contains the following structure:
+
+```text
+test/
+└── testthat.R
+└── testthat/
+    ├── test-gbif-custom.R
+    ├── test-gbif-snapshot.R
+    └── tmp/                               # Folder for test data
+        ├── test-taxonomy.rds              # Example taxonomy list
+        ├── gbif-snapshot/                 # Folder for storing snapshot-method results
+        └── gbif-custom/                   # Folder for storing customized-method results
+            ├── example_parquet            # Example dataset download link
+            └── occurrence.parquet/        # Required folder (unzipped from manually downloading)
+```
+
+>The tests will not be executed when rendering documents.
+
+>This test suite can also perform as an example workflow. For other GBIF-based project, please feel free to replace the example taxonomy list with your own example as well as the parameter pass to `test-*.R` in `test/testthat/`.
+
+```{r}
+# usethis::use_testthat() # Set up testthat for the first time
+# Add test-*.R files in the `test/testthat/` folder
+# Before running the tests, make sure to source the scripts with defined functions
+
+# testthat::test_dir(here("tests/testthat/")) # Test all test-*.R files in the directory
+testthat::test_file("tests/testthat/test-gbif-custom.R") # Test specific files
+testthat::test_file("tests/testthat/test-gbif-snapshot.R", reporter = "Location")
+```
+
+
