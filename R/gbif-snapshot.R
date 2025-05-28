@@ -1,6 +1,5 @@
 library(arrow)
 library(aws.s3)
-library(CoordinateCleaner)
 
 # Utility function to set up the S3 bucket connection
 setup_s3_bucket <- function(bucket_name, endpoint, region, proxy = NULL) {

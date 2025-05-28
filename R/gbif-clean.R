@@ -1,3 +1,5 @@
+library(CoordinateCleaner)
+
 clean_occ <- function(occ_data) {
   # basic filter
   occ_data <- occ_data |>

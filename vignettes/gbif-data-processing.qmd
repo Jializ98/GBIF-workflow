@@ -28,7 +28,78 @@ Each method serves different research needs and offers distinct pathways for lev
 
 ## Taxonomic input
 
-Both methods require a GBIF taxonomic input file, which defines the list of species or genera of interest. This file typically contains GBIF taxonomic identifiers (e.g., `usagekey`) and serves as a reference to guide data filtering. Two types of taxonomy records are accepted:
+Both methods require a GBIF taxonomic input file, which defines the list of species or genera of interest. This file typically contains GBIF taxonomic identifiers (e.g., `usagekey`) and serves as a reference to guide data filtering.
+
+In practice, users often begin with a raw name list derived from field surveys, experimental observations, or vegetation inventories. These name lists may not be taxonomically standardized—species might be identified only to genus or family, and name variants or misspellings are common due to differences in observational sources and data entry practices. For demonstration purposes, we provide a partial name list from the LOTVS dataset containing 5000+ plant names. This list illustrates many of the common challenges found in real-world taxonomic data.
+
+```{r read-taxon-list}
+lotvs_taxon_list <- readRDS(here("data/taxonomy/test-taxon-list.rds"))
+```
+
+To generate a standardized GBIF taxonomic reference list from such raw names, we recommend the following three-step workflow:
+
+1. **Match backbone taxonomy:** By aligning the taxonomic names with the comprehensive and standardized GBIF Backbone Taxonomy, we ensure consistency and accuracy in species identification.
+
+2. **Consolidate synonyms:** Identify and rectify synonymous species and genera names to enhance data integrity. By using the accepted scientific names, we ensure that occurrence records encompass both the accepted names and their synonyms.
+
+3. **Further review:** Conduct a thorough manual review of species names that were identified through fuzzy or doubtful matching, where potential spelling errors or variants may exist. It is strongly recommended that this step be carried out by a taxonomic expert, to ensure the accuracy and validity of such matches.
+
+### Match of backbone taxonomy
+
+We first attempt to match the taxonomic names to the [GBIF Backbone Taxonomy](https://www.gbif.org/dataset/d7dddbf4-2cf0-4f39-9b2a-bb099caae36c), which is a comprehensive and standardized classification system essential for ensuring consistency and accuracy in species identification. Given that the dataset primarily includes vascular plants, we specify the kingdom and phylum accordingly to improve the accuracy of the matches.
+
+```{r match-lotvs-gbif-backbone}
+# Match species names to the GBIF Backbone Taxonomy for vascular plants
+lotvs_backbone <- lotvs_taxon_list |>
+  name_backbone_checklist(kingdom = "Plantae", phylum = "Tracheophyta")
+
+# Ensure all matched names are present in the original taxonomic names list
+expect_equal(lotvs_backbone$verbatim_name, lotvs_taxon_list)
+```
+
+The majority of taxonomic names in LOTVS match successfully with the GBIF Backbone Taxonomy for vascular plants (identified at the species or genera level). From the tutorial,
+
+> A matchType of “**HIGHERRANK**” usually means the name is not in the GBIF backbone or it is not a species-level name (a genus, family, order …). A matchType of “**FUZZY**” means that the name you supplied may have been misspelled or is a variant not in the backbone. A matchType of “**EXACT**” means the binomial name appears exactly as spelled by you in the GBIF backbone (note that it ignores authorship info).
+
+> A status of “**ACCEPTED**” means the name is the primary, accepted name. A status of “**SYNONYM**” means that the name is currently considered a synonym (not the primary, accepted name). A status of “**DOUBTFUL**” means there are doubts about the validity or correctness for several [reasons](https://www.gbif.org/faq?question=what-does-the-taxon-status-doubtful-mean-and-when-is-used).
+
+```{r check-lotvs-gbif-backbone}
+# Count taxa by kingdom and phylum to verify classification
+lotvs_backbone |>
+  count(kingdom, phylum)
+
+# Summarize match types for vascular plants
+lotvs_backbone |>
+  filter(kingdom == "Plantae", phylum == "Tracheophyta") |>
+  count(rank, status, matchType) |>
+  print(n = Inf)
+
+# Filter results to include genus or species ranks with accepted or synonym status
+lotvs_backbone_filtered <- lotvs_backbone |>
+  filter(
+    kingdom == "Plantae", phylum == "Tracheophyta",
+    rank %in% c("GENUS", "SPECIES"),
+    status %in% c("ACCEPTED", "SYNONYM")
+  )
+```
+
+### Consolidation of synonyms
+
+In the process of matching LOTVS taxonomic names to the GBIF Backbone Taxonomy, 458 species and genus names in the dataset were identified as synonyms. These names were matched to a `usageKey`, which differs from the `accepted_scientificName`.
+
+When these `usageKeys` are used to download occurrence records or access records from a snapshot, only the occurrences for the specific synonymous species names are retrieved. However, leveraging the `acceptedUsageKey` allows retrieval of occurrence records for both the accepted name and its synonyms ([reference](https://discourse.gbif.org/t/understanding-gbif-taxonomic-keys-usagekey-taxonkey-specieskey/3045/4)).
+
+To ensure comprehensive data collection, it is recommended to replace the `usageKey` with the `acceptedUsageKey` for these synonymous species and genera.
+
+```{r consolidate-synonyms}
+# Update the dataset to use acceptedUsageKey for synonyms
+lotvs_backbone_filtered_consolidated <- lotvs_backbone_filtered |>
+  mutate(usageKey = if_else(status == "SYNONYM", acceptedUsageKey, usageKey))
+```
+
+### Input requirements
+
+Two types of taxonomy records are accepted for further GBIF retrieval:
 
 Species-level records: entries identified to the species level.
 
@@ -47,6 +118,24 @@ These two groups are processed separately to ensure accurate data retrieval, and
     -   We retrieve occurrence records by filtering on the `genus name`, not the `usagekey`. This ensures we capture all species within that genus, even those not linked to a GBIF taxon key.
 
 See also: [GBIF taxonomic key explanation](https://discourse.gbif.org/t/understanding-gbif-taxonomic-keys-usagekey-taxonkey-specieskey/3045/4#:~:text=If%20you%20search,key%20you%20use)
+
+For futher processing, we save one species record and one genus record into an RDS file. This file will be used in both the customized data request and snapshot download methods.
+
+```{r}
+#| eval: false
+#| echo: false
+
+# Just pick one species and one genus
+one_species <- lotvs_backbone_filtered_consolidated[lotvs_backbone_filtered_consolidated$rank == "SPECIES", , drop = FALSE][1, , drop = FALSE]
+one_genus <- lotvs_backbone_filtered_consolidated[lotvs_backbone_filtered_consolidated$rank == "GENUS", , drop = FALSE][1, , drop = FALSE]
+
+# Combine into a single data frame
+test_taxonomy <- rbind(one_species, one_genus)
+
+# Save to a temp RDS file for testing
+test_taxonomy_file <- here("data/taxonomy/test-taxonomy.rds")
+write_rds(test_taxonomy, test_taxonomy_file)
+```
 
 ## Customized data request
 
@@ -172,25 +261,8 @@ lotvs_backbone_consolidate <- lotvs_backbone_taxonomy |>
 gbif_snapshot_retrieve(
   save_path = gbif_dir,
   gbif_snapshot_path = gbif_snapshot_path,
-  taxonomy_list = lotvs_backbone_consolidate,
-  clean = FALSE # The `gbif_dir` folder stored the un-cleaned data
+  taxonomy_list = lotvs_backbone_consolidate
 )
-```
-
-### Clean steps
-
-The `gbif_snapshot_retrieve()` function includes a `clean` parameter. When set to `TRUE`, it performs coordinate cleaning during retrieval. Since our previous analyses did not clean coordinates at this stage, we provide a separate function, `clean_occ_files()`, to clean the occurrence records afterward. This cleaning process removes duplicate records and filters out those with invalid coordinate values.
-
-```{r}
-#| eval: false
-
-input_dir <- here("data/occurrence/gbif-snapshot/species")
-output_dir <- here("data/occurrence/gbif-snapshot/cleaned/species")
-clean_occ_files(input_dir, output_dir)
-
-input_dir <- here("data/occurrence/gbif-snapshot/genus")
-output_dir <- here("data/occurrence/gbif-snapshot/cleaned/genus")
-clean_occ_files(input_dir, output_dir)
 ```
 
 **Use Slurm to retrieve records for all species**
@@ -206,6 +278,22 @@ Similarly, the retrieval script is submitted as a Slurm batch job on a high-perf
 ```
 
 </details>
+
+## Clean steps
+
+The `gbif_snapshot_retrieve()` function includes a `clean` parameter. When set to `TRUE`, it performs coordinate cleaning during retrieval. Since our previous analyses did not clean coordinates at this stage, we provide a separate function, `clean_occ_files()`, to clean the occurrence records afterward. This cleaning process removes duplicate records and filters out those with invalid coordinate values.
+
+```{r}
+#| eval: false
+
+input_dir <- here("data/occurrence/gbif-snapshot/species")
+output_dir <- here("data/occurrence/gbif-snapshot/cleaned/species")
+clean_occ_files(input_dir, output_dir)
+
+input_dir <- here("data/occurrence/gbif-snapshot/genus")
+output_dir <- here("data/occurrence/gbif-snapshot/cleaned/genus")
+clean_occ_files(input_dir, output_dir)
+```
 
 ## Running test
 

@@ -7,9 +7,6 @@
 # * https://testthat.r-lib.org/articles/special-files.html
 
 library(testthat)
-library(proj-grassland2)
+library(GBIF-workflow)
 
-test_check("proj-grassland2")
-
-
-
+test_check("GBIF-workflow")
