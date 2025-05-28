@@ -1,5 +1,5 @@
 ---
-title: "GBIF data processing"
+title: "GBIF data access and processing workflow"
 author: "Jiali Zhu, Kai Zhu"
 date: today
 editor_options:
